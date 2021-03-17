@@ -1,0 +1,62 @@
+-- INPUTS
+
+local key = '39fa61f2ba68437df62e82cf53f8a63d285c6c833933c08b881a33ab010769b5'
+
+local token_validity = 86400
+
+local payload = {
+  ["sub"] = "leandro.carneiro@ifood.com.br",
+  ["tenant"] = "iFood",
+  ["roles"] = "[\"admin\",\"read-only\"]",
+}
+
+local field_delimiter = '~'
+-- 
+
+local openssl_hmac = require "resty.openssl.hmac"
+local pairs = pairs
+local table_insert = table.insert
+local table_concat = table.concat
+local string_gsub = string.gsub
+local string_char = string.char
+local string_lower = string.lower
+local string_format = string.format
+local string_byte = string.byte
+local ngx_time = ngx.time
+local tonumber = tonumber
+
+local function concat_dict_table(tbl, delimiter)
+  local r = {}
+  local d = delimiter and delimiter or ","
+  for k, v in pairs(tbl) do
+    table_insert(r, table_concat{k, '=', v})
+  end
+  return table_concat(r, d)
+end
+
+local function hex2ascii(s)
+  local r = string_gsub(s,"(.)(.)",function (x,y) local c = (x..y) return string_char(tonumber(c, 16)) end)
+  return r
+end
+
+local function bin2hex(s)
+    local s = string_gsub(s,"(.)",function (x) return string_lower(string_format("%02X",string_byte(x))) end)
+    return s
+end
+
+local to_sign_string = concat_dict_table({
+  ["exp"] = ngx_time() + token_validity,
+  ["acl"] = "/*",
+  ["data"] = concat_dict_table(payload, '&')
+}, field_delimiter)
+
+local signature, err = openssl_hmac.new(hex2ascii(key), "sha256"):final(to_sign_string)
+if err then
+  print('not good')
+end
+
+local hex_signature = bin2hex(signature)
+
+local r = table_concat({to_sign_string, '~hmac=', hex_signature})
+
+print(r)
