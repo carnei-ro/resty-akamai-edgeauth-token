@@ -1,18 +1,4 @@
--- INPUTS
-
-local key = '39fa61f2ba68437df62e82cf53f8a63d285c6c833933c08b881a33ab010769b5'
-
-local token_validity = 86400
-
-local payload = {
-  ["sub"] = "leandro.carneiro@ifood.com.br",
-  ["tenant"] = "iFood",
-  ["roles"] = "[\"admin\",\"read-only\"]",
-}
-
-local field_delimiter = '~'
--- 
-
+-- FUNCTIONS AND REQUIRES
 local openssl_hmac = require "resty.openssl.hmac"
 local pairs = pairs
 local table_insert = table.insert
@@ -44,19 +30,55 @@ local function bin2hex(s)
     return s
 end
 
-local to_sign_string = concat_dict_table({
-  ["exp"] = ngx_time() + token_validity,
-  ["acl"] = "/*",
-  ["data"] = concat_dict_table(payload, '&')
-}, field_delimiter)
+local function sign_token(exp, acl, field_delimiter, key, alg, data)
+  local to_sign_string = concat_dict_table({
+    ["exp"] = exp,
+    ["acl"] = acl,
+    ["data"] = data
+  }, field_delimiter)
+  
+  local signature, err = openssl_hmac.new(hex2ascii(key), alg):final(to_sign_string)
+  if err then
+    return nil, err
+  end
+  
+  local hex_signature = bin2hex(signature)
+  
+  local r = table_concat({to_sign_string, '~hmac=', hex_signature})
 
-local signature, err = openssl_hmac.new(hex2ascii(key), "sha256"):final(to_sign_string)
-if err then
-  print('not good')
+  return r, nil
 end
 
-local hex_signature = bin2hex(signature)
+-- INPUTS
 
-local r = table_concat({to_sign_string, '~hmac=', hex_signature})
+-- Gen key: openssl rand -hex 32
+local key = '39fa61f2ba68437df62e82cf53f8a63d285c6c833933c08b881a33ab010769b5'
 
+local token_validity = 86400
+
+local allowed_paths = {
+  "/get*",
+  "/post*",
+  "/anything*",
+}
+
+local acl_delimiter = '!'
+local field_delimiter = '~'
+--
+
+-- payload is not required
+local payload = concat_dict_table({
+  ["sub"] = "leandro.carneiro@ifood.com.br",
+  ["tenant"] = "iFood",
+  ["roles"] = "[\"admin\",\"read-only\"]",
+}, '&')
+
+local r, err = sign_token(
+                ngx_time() + token_validity,
+                table_concat(allowed_paths, acl_delimiter),
+                field_delimiter,
+                key,
+                "sha256",
+                payload
+              )
 print(r)
